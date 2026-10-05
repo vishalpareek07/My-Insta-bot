@@ -3,6 +3,7 @@ import re
 import glob
 import subprocess
 from telegram import Update
+from telegram.request import HTTPXRequest
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
 BOT_TOKEN = "8975456161:AAHSNLITEZ-JT45AEi_EI1KQzOKNWXw_4E0"
@@ -71,7 +72,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
 if __name__ == "__main__":
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    req = HTTPXRequest(connection_pool_size=8, read_timeout=30.0, write_timeout=30.0, connect_timeout=30.0)
+    app = ApplicationBuilder().token(BOT_TOKEN).request(req).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     print("Bot live aur ready hai...")
