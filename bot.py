@@ -1,104 +1,74 @@
 import os
-import re
-import glob
-import subprocess
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
+import requests
 from telegram import Update
-from telegram.request import HTTPXRequest
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
-BOT_TOKEN = "8975456161:AAHSNLITEZ-JT45AEi_EI1KQzOKNWXw_4E0"
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+IG_USER_ID = os.getenv("IG_USER_ID")
+IG_ACCESS_TOKEN = os.getenv("IG_ACCESS_TOKEN")
 
-# Render Web Service port check satisfy karne ke liye dummy server
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.send_header("Content-type", "text/plain")
         self.end_headers()
-        self.wfile.write(b"Bot is alive and running!")
+        self.wfile.write(b"OK")
 
     def do_HEAD(self):
         self.send_response(200)
-        self.send_headers()
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
 
-def run_health_check_server():
-    port = int(os.environ.get("PORT", 8080))
+def run_health_server():
+    port = int(os.getenv("PORT", 8080))
     server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
     server.serve_forever()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("👋 Bot active hai! Instagram Reel ka link bhejo.")
+    await update.message.reply_text("Bot active hai! Video URL bhejo Instagram reel post karne ke liye.")
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    url = update.message.text.strip()
-    if not ("instagram.com" in url or "instagr.am" in url):
-        await update.message.reply_text("⚠️ Kripya valid Instagram Reel ka link bhejein.")
+async def post_reel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    video_url = update.message.text.strip()
+    if not (video_url.startswith("http://") or video_url.startswith("https://")):
+        await update.message.reply_text("Kripya valid video URL bhejo.")
         return
 
-    msg = await update.message.reply_text("⏳ Reel download ho rahi hai...")
+    status_msg = await update.message.reply_text("Reel create ho rahi hai...")
 
-    for f in glob.glob("temp_*.*"):
-        try:
-            os.remove(f)
-        except Exception:
-            pass
+    create_url = f"https://graph.facebook.com/v19.0/{IG_USER_ID}/media"
+    payload = {
+        "media_type": "REELS",
+        "video_url": video_url,
+        "access_token": IG_ACCESS_TOKEN
+    }
 
-    chat_id = update.effective_chat.id
-    raw_output = f"temp_raw_{chat_id}.%(ext)s"
-    clean_output = f"temp_clean_{chat_id}.mp4"
-
-    download_cmd = [
-        "yt-dlp",
-        "-f", "b[ext=mp4]/b",
-        "-o", raw_output,
-        url
-    ]
-    res = subprocess.run(download_cmd, capture_output=True, text=True)
-
-    downloaded = glob.glob(f"temp_raw_{chat_id}.*")
-    if not downloaded:
-        await msg.edit_text("❌ Download fail ho gaya. Kripya check karein ki reel public hai.")
+    res = requests.post(create_url, data=payload).json()
+    if "id" not in res:
+        await status_msg.edit_text(f"Error aaya container banane mein: {res}")
         return
 
-    input_file = downloaded[0]
-    await msg.edit_text("⚙️ Video clean aur process ho rahi hai...")
+    creation_id = res["id"]
+    publish_url = f"https://graph.facebook.com/v19.0/{IG_USER_ID}/media_publish"
+    pub_payload = {
+        "creation_id": creation_id,
+        "access_token": IG_ACCESS_TOKEN
+    }
 
-    ffmpeg_cmd = [
-        "ffmpeg", "-y",
-        "-i", input_file,
-        "-map_metadata", "-1",
-        "-c:v", "copy",
-        "-c:a", "copy",
-        clean_output
-    ]
-    subprocess.run(ffmpeg_cmd, capture_output=True)
+    pub_res = requests.post(publish_url, data=pub_payload).json()
+    if "id" in pub_res:
+        await status_msg.edit_text("Reel successfully publish ho gayi!")
+    else:
+        await status_msg.edit_text(f"Publish error: {pub_res}")
 
-    send_file = clean_output if os.path.exists(clean_output) else input_file
-
-    await msg.edit_text("📤 Telegram par upload ho rahi hai...")
-    try:
-        with open(send_file, "rb") as video:
-            await update.message.reply_video(video=video, caption="✅ Video ready!")
-        await msg.delete()
-    except Exception as e:
-        await msg.edit_text(f"❌ Upload error: {str(e)}")
-
-    for f in glob.glob(f"temp_*_{chat_id}.*"):
-        try:
-            os.remove(f)
-        except Exception:
-            pass
+def main():
+    threading.Thread(target=run_health_server, daemon=True).start()
+    app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), post_reel))
+    app.run_polling()
 
 if __name__ == "__main__":
-    # Background thread mein web server start karega
-    web_thread = threading.Thread(target=run_health_check_server, daemon=True)
-    web_thread.start()
-
-    req = HTTPXRequest(connection_pool_size=8, read_timeout=30.0, write_timeout=30.0, connect_timeout=30.0)
-    app = ApplicationBuilder().token(BOT_TOKEN).request(req).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-    print("Bot live aur ready hai...")
-    app.run_polling()
+    main()
     
