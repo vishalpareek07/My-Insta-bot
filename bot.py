@@ -5,9 +5,9 @@ import requests
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-IG_USER_ID = os.getenv("IG_USER_ID")
-IG_ACCESS_TOKEN = os.getenv("IG_ACCESS_TOKEN")
+TELEGRAM_BOT_TOKEN = (os.getenv("TELEGRAM_BOT_TOKEN") or "").strip()
+IG_USER_ID = (os.getenv("IG_USER_ID") or "").strip()
+IG_ACCESS_TOKEN = (os.getenv("IG_ACCESS_TOKEN") or "").strip()
 
 class HealthCheckHandler(BaseHTTPRequestHandler):
     def do_GET(self):
