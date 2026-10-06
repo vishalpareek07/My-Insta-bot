@@ -2,11 +2,30 @@ import os
 import re
 import glob
 import subprocess
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update
 from telegram.request import HTTPXRequest
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
 BOT_TOKEN = "8975456161:AAHSNLITEZ-JT45AEi_EI1KQzOKNWXw_4E0"
+
+# Render Web Service port check satisfy karne ke liye dummy server
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"Bot is alive and running!")
+
+    def do_HEAD(self):
+        self.send_response(200)
+        self.send_headers()
+
+def run_health_check_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    server.serve_forever()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("👋 Bot active hai! Instagram Reel ka link bhejo.")
@@ -72,6 +91,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
 if __name__ == "__main__":
+    # Background thread mein web server start karega
+    web_thread = threading.Thread(target=run_health_check_server, daemon=True)
+    web_thread.start()
+
     req = HTTPXRequest(connection_pool_size=8, read_timeout=30.0, write_timeout=30.0, connect_timeout=30.0)
     app = ApplicationBuilder().token(BOT_TOKEN).request(req).build()
     app.add_handler(CommandHandler("start", start))
