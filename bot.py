@@ -1,7 +1,9 @@
 import os
 import threading
-from http.server import HTTPServer, BaseHTTPRequestHandler
+import time
 import requests
+import yt_dlp
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
@@ -26,30 +28,55 @@ def run_health_server():
     server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
     server.serve_forever()
 
+def extract_direct_video_url(reel_url):
+    ydl_opts = {
+        'format': 'best',
+        'quiet': True,
+        'no_warnings': True,
+    }
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(reel_url, download=False)
+        return info.get('url')
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Bot active hai! Video URL bhejo Instagram reel post karne ke liye.")
+    await update.message.reply_text("Bot active hai! Kisi bhi Instagram Reel ka link bhejo, wo aapke account par repost ho jayegi.")
 
 async def post_reel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    video_url = update.message.text.strip()
-    if not (video_url.startswith("http://") or video_url.startswith("https://")):
-        await update.message.reply_text("Kripya valid video URL bhejo.")
+    reel_url = update.message.text.strip()
+    if not ("instagram.com" in reel_url or reel_url.startswith("http")):
+        await update.message.reply_text("Kripya valid Instagram Reel URL bhejo.")
         return
 
-    status_msg = await update.message.reply_text("Reel create ho rahi hai...")
+    status_msg = await update.message.reply_text("⏳ Reel se video nikaali ja rahi hai...")
+
+    try:
+        direct_video_url = extract_direct_video_url(reel_url)
+        if not direct_video_url:
+            await status_msg.edit_text("❌ Video link nahi mil paaya. Reel private ho sakti hai.")
+            return
+    except Exception as e:
+        await status_msg.edit_text(f"❌ Error video nikaalne mein: {str(e)}")
+        return
+
+    await status_msg.edit_text("🚀 Instagram par upload shuru ho gaya...")
 
     create_url = f"https://graph.facebook.com/v19.0/{IG_USER_ID}/media"
     payload = {
         "media_type": "REELS",
-        "video_url": video_url,
+        "video_url": direct_video_url,
         "access_token": IG_ACCESS_TOKEN
     }
 
     res = requests.post(create_url, data=payload).json()
     if "id" not in res:
-        await status_msg.edit_text(f"Error aaya container banane mein: {res}")
+        await status_msg.edit_text(f"❌ Error container banane mein: {res}")
         return
 
     creation_id = res["id"]
+
+    await status_msg.edit_text("⏳ Instagram video process kar raha hai, 15 second rukiye...")
+    time.sleep(15)
+
     publish_url = f"https://graph.facebook.com/v19.0/{IG_USER_ID}/media_publish"
     pub_payload = {
         "creation_id": creation_id,
@@ -58,9 +85,9 @@ async def post_reel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     pub_res = requests.post(publish_url, data=pub_payload).json()
     if "id" in pub_res:
-        await status_msg.edit_text("Reel successfully publish ho gayi!")
+        await status_msg.edit_text("✅ Reel aapke Instagram par successfully post ho gayi!")
     else:
-        await status_msg.edit_text(f"Publish error: {pub_res}")
+        await status_msg.edit_text(f"❌ Publish error: {pub_res}")
 
 def main():
     threading.Thread(target=run_health_server, daemon=True).start()
